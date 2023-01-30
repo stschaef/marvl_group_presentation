@@ -1,17 +1,258 @@
 \documentclass{beamer}
+\usepackage{listings}
 %Information to be included in the title page:
-\title{Sample title}
-\author{Anonymous}
-\institute{Overleaf}
-\date{2021}
+\title{An Overview of Previous Work on Verification of Distributed Systems}
+\author{Steven Schaefer}
+\institute{University of Michigan}
+\date{February 3rd, 2023}
 
 \begin{document}
 
 \frame{\titlepage}
 
 \begin{frame}
-\frametitle{Sample frame title}
-This is some text in the first frame. This is some text in the first frame. This is some text in the first frame.
+\frametitle{Finding Inductive Invariants}
+Given a distributed system as a transition system $(\mathcal{S}, \mathcal{I}, \mathcal{T})$ and a desired property $P$. 
+
+Want to prove safety property $P$ true for all executions of a system. However, a property $P$ is not in general \textit{inductive} --- preserved by the transition relation --- so we need to find \textit{inductive invariants} $I_j$ such that $\bigwedge I_j \rightarrow P$.
+
+Inductive invariants can be found using tools like I4, IC3PO, etc.
+\end{frame}
+
+\begin{frame}
+\frametitle{Describing the Reachable States}
+In addition to finding inductive invariants that imply the desired property, we can also describe the reachable states $R$ of the system using inductive invariants. We may find enough inductive invariants $I_j$ such that their conjunction describes $R$ exactly.
+\[
+  \bigcap I_j = R  
+\]
+\end{frame}
+
+\begin{frame}
+\frametitle{Algorithm to Find $R$}
+\textit{Note: We will walk through an example.}
+\begin{enumerate}
+    \item Instantiate the protocol for small, finite sizes.
+    \item Enumerate all reachable states for each instantiation.
+    \item Perform logic minimization on the reachable states.
+    \item Infer a quantified formula for each clause orbit.
+    \item If the formula is syntactically the same as the previous iteration, stop. Otherwise, repeat step 1 with a larger instantiation.
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Client-Server Example}
+
+Sorts: $\texttt{client}, \texttt{server}$. States: $\mathcal{S} = \{ \texttt{link}(c,s), \texttt{semaphore}(s) \}$.
+
+Initial State: $\mathcal{I} = (\forall c, s . \neg \texttt{link}(c, s)) \land (\forall s . \texttt{semaphore}(s))$
+
+Transitions: \texttt{connect} and \texttt{disconnect}.
+\begin{verbatim}
+    connect(c, s) {
+        require semaphore(s);
+        link(c, s) := true;
+        semaphore(s) := false;
+    }
+        
+    disconnect(c, s) {
+        require link(c, s);
+        link(c, s) := false;
+        semaphore(s) := true;
+    }
+\end{verbatim}
+        Safety Property: $\forall c_1, c_2. \forall s . \neg \texttt{link}(c_1, s) \lor \neg \texttt{link}(c_2, s) \lor c_1 = c_2$
+    \end{frame}
+
+\begin{frame}
+\frametitle{Client-Server Example: Generating Reachable States}
+Choose finite instantiation $|\texttt{client}| = 2, |\texttt{server}| = 2$.
+\begin{center}
+    Unminimized $R$:
+    \begin{tabular}{|c c c c c c|}
+        \hline
+        $\texttt{l}(c_1, s_1)$ & $\texttt{l}(c_1, s_2)$ & $\texttt{l}(c_2, s_1)$ & $\texttt{l}(c_2, s_2)$ & $\texttt{sem}(s_1)$ & $\texttt{sem}(s_2)$ \\
+        \hline
+        0 & 0 & 0 & 0 & 1 & 1 \\
+        1 & 0 & 0 & 0 & 0 & 1 \\
+        0 & 1 & 0 & 0 & 0 & 1 \\
+        0 & 0 & 1 & 0 & 0 & 1 \\
+        0 & 0 & 0 & 1 & 1 & 0 \\
+        1 & 0 & 0 & 1 & 0 & 0 \\
+        0 & 0 & 1 & 1 & 0 & 0 \\
+        0 & 1 & 1 & 0 & 0 & 0 \\
+        1 & 1 & 0 & 0 & 0 & 0 \\
+        \hline
+    \end{tabular}
+
+    Read top row as $\neg \texttt{link}(c_1, s_1) \land \neg \texttt{link}(c_1, s_2) \land \neg \texttt{link}(c_2, s_1) \land \neg \texttt{link}(c_2, s_2) \land \texttt{semaphore}(s_1) \land \texttt{semaphore}(s_2)$.
+\end{center}
+\end{frame}
+
+\begin{frame}
+\frametitle{An Aside on Logic Minimization}
+Idea: find a formula that is logically equivalent to the original formula, but of minimal size.
+
+Simple example: $\phi := AB + A'B = (A + A')B = B$. Represented as a table, 
+
+\begin{center}
+    Unminimized
+    \begin{tabular}{|c c c|}
+        \hline
+        A & B & $\phi$ \\
+        \hline
+        0 & 0 & 0 \\
+        0 & 1 & 1 \\
+        1 & 0 & 0 \\
+        1 & 1 & 1 \\
+        \hline
+    \end{tabular}
+    \quad Minimized
+    \begin{tabular}{|c c c|}
+        \hline
+        A & B & $\phi$ \\
+        \hline
+        - & 0 & 0 \\
+        - & 1 & 1 \\
+        - & 0 & 0 \\
+        - & 1 & 1 \\
+        \hline
+    \end{tabular}
+\end{center}
+
+
+Quine-McCluskey algorithm repeatedly apply this idea until a minimal formula is found. \textit{Note:} for those who know about Gr\"obner bases, this is a special case of the Buchberger algorithm for Boolean algebras.
+
+Can also use heuristic tools like the Espresso minimizer.
+\end{frame}
+
+\begin{frame}
+\frametitle{Client-Server Example: Minimizing Reachable States}
+Negate the reachable states and minimize the resulting formula. \textit{Note:} each entry in this table represents an element of $\neg R \subset \mathcal{S}$.
+\begin{center}
+    Minimized $\neg R$:
+    \begin{tabular}{|c c c c c c|}
+        \hline
+        $\texttt{l}(c_1, s_1)$ & $\texttt{l}(c_1, s_2)$ & $\texttt{l}(c_2, s_1)$ & $\texttt{l}(c_2, s_2)$ & $\texttt{sem}(s_1)$ & $\texttt{sem}(s_2)$ \\
+        \hline
+        1 & - & 1 & - & - & - \\
+        - & 1 & - & 1 & - & - \\
+        1 & - & - & - & 1 & - \\
+        - & - & 1 & - & 1 & - \\
+        - & 1 & - & - & - & 1 \\
+        - & - & - & 1 & - & 1 \\
+        0 & - & 0 & - & 0 & - \\
+        - & 0 & - & 0 & - & 0 \\ 
+        \hline
+    \end{tabular}
+
+    Read top row as $\texttt{link}(c_1, s_1) \land \texttt{link}(c_2, s_1)$. Interpret as saying this is a bad state.
+\end{center}
+\end{frame}
+\begin{frame}
+\frametitle{Client-Server Example: Minimizing Reachable States}
+Negate again to get statements about good states --- i.e. describing $R$.
+\begin{center}
+    Minimized $\neg R$:
+    \begin{tabular}{|c c c c c c|}
+        \hline
+        $\texttt{l}(c_1, s_1)$ & $\texttt{l}(c_1, s_2)$ & $\texttt{l}(c_2, s_1)$ & $\texttt{l}(c_2, s_2)$ & $\texttt{sem}(s_1)$ & $\texttt{sem}(s_2)$ \\
+        \hline
+        1 & - & 1 & - & - & - \\
+        - & 1 & - & 1 & - & - \\
+        1 & - & - & - & 1 & - \\
+        - & - & 1 & - & 1 & - \\
+        - & 1 & - & - & - & 1 \\
+        - & - & - & 1 & - & 1 \\
+        0 & - & 0 & - & 0 & - \\
+        - & 0 & - & 0 & - & 0 \\ 
+        \hline
+    \end{tabular}
+
+    Instead of reading top row as stating a bad state, after negation we find the top row states that a good state must obey $\neg \texttt{link}(c_1, s_1) \lor \neg \texttt{link}(c_2, s_1)$.
+\end{center}
+\end{frame}
+
+\begin{frame}
+\frametitle{Client-Server Example: Infer Quantifiers}
+Minimized $\neg R$:
+    \begin{tabular}{|c c c c c c|}
+        \hline
+        $\texttt{l}(c_1, s_1)$ & $\texttt{l}(c_1, s_2)$ & $\texttt{l}(c_2, s_1)$ & $\texttt{l}(c_2, s_2)$ & $\texttt{sem}(s_1)$ & $\texttt{sem}(s_2)$ \\
+        \hline
+        1 & - & 1 & - & - & - \\
+        - & 1 & - & 1 & - & - \\
+        1 & - & - & - & 1 & - \\
+        - & - & 1 & - & 1 & - \\
+        - & 1 & - & - & - & 1 \\
+        - & - & - & 1 & - & 1 \\
+        0 & - & 0 & - & 0 & - \\
+        - & 0 & - & 0 & - & 0 \\ 
+        \hline
+    \end{tabular}
+
+For each clause orbit --- rows 1 and 2 are symmetric --- we infer a quantifed formula. Resulting in the following formulas:
+\begin{itemize}
+    \item $\forall s . \exists c .  \texttt{link}(c, s) \lor \texttt{semaphore}(s)$
+    \item $\forall c . \forall s . \neg \texttt{link}(c, s) \lor \neg \texttt{semaphore}(s)$
+    \item $\forall c_1, c_2 . \forall s. \neg \texttt{link}(c_1, s) \lor \neg \texttt{link}(c_2, s)$ --- almost what we want, but doesn't generalize to larger sizes
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{Client-Server Example: Where Generalization Fails}
+From the last slide, we found $\forall c_1, c_2 . \forall s. \neg \texttt{link}(c_1, s) \lor \neg \texttt{link}(c_2, s)$. But recall the property we want to prove is, $\forall c_1, c_2. \forall s . \neg \texttt{link}(c_1, s) \lor \neg \texttt{link}(c_2, s) \lor c_1 = c_2$.
+
+To observe this mutual exclusion property we need at least 3 clients, which is the cutoff here. Need enough clients to distinguish between "for all clients but one" and "one out of every pair of clients".
+
+$|\texttt{client}| = 3, |\texttt{server}| = 2$ gives a formula that generalizes to any number of clients and servers.
+\end{frame}
+
+\begin{frame}
+    \frametitle{Client-Server Example: Formula for $R$}
+    \begin{itemize}
+        \item $I_1 = \forall s . \exists c .  \texttt{link}(c, s) \lor \texttt{semaphore}(s)$
+        \item $I_2 = \forall c . \forall s . \neg \texttt{link}(c, s) \lor \neg \texttt{semaphore}(s)$
+        \item $I_3 = \forall c_1, c_2 . \forall s. \neg \texttt{link}(c_1, s) \lor \neg \texttt{link}(c_2, s) \lor c_1 = c_2$
+    \end{itemize}
+    $R = I_1 \land I_2 \land I_3$, and $P = I_3$. These formulas hold for any number of clients and servers, shown with Z3.
+\end{frame}
+
+\begin{frame}
+    \frametitle{Good Minimization}
+    The process we just witnessed requires minimization to be good. Initially, we used Espresso which is heuristic and not guaranteed to find the smallest formula. Additionally, Espresso --- and other logic minimization methods --- do not a priori give symmetric solutions. 
+
+    Need symmetry to be able to infer quantifiers. 
+    
+    Solution: encode symmetric minimization into SAT, then use a SAT solver to find a symmetric and minimal solution.
+\end{frame}
+
+\begin{frame}
+    \frametitle{Client-Server Example: A Disjunctive View}
+    Idea: find a small number of formulas that cover the reachable states. Then, use a disjunction to combine them.
+
+    The output of this process is another expression for $R$ which may give different semantic insight than the previous process. Effectively, this gives an abstract transition system that simulates the original system. The benefit is that this abstract system has a much smaller state space, and its size is independent of sort sizes.
+    TODO: include some pictures. Note that this process was largely manual and that the resulting formulas, while correct, more or less just take the previous process and distribute it over some counting abstraction scheme.
+\end{frame}
+
+\begin{frame}
+    \frametitle{Future Work in This Area}
+    \begin{itemize}
+        \item The process stops when the outputted formula is syntactically equivalent across several instantiation sizes. There is no proof that this is sufficient to guarantee that the formula is correct for all sizes. We witness that it is sufficient, and verify the equivalence manually, but a proof would be great.
+        \item Some quantifer inference is ambiguous. Which is especially apparent at small sizes. Need to find a way to resolve this ambiguity. Example: When in size 3 and you witness a behavior involving 2 nodes, is this supposed to be thought of as an "all-but-one" behavior or a "every-pair" behavior? Quantifier inference needs a more rigorous treatment --- what is inferable, the normal forms of the resulting formulas, etc.
+        \item Automatic inference of cardinality of $R$. In the client-server example, it can be shown that $|R| = (|\texttt{client}| + 1)^{|\texttt{server}|}$. Observable empirically, and manually provable after a little thought, but would be nice to extract automatically.
+        \item What sorts of abstraction schemes can be used to make the disjunctive view more tractable?
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Current Project}
+    The Ivy language is used for reasoning about distributed systems. Elanor and I are working on a project investigating Ivy in more detail. We are interested in the following questions:
+    \begin{itemize}
+        \item How can the semantics of Ivy be formalized?
+        \item How can we reason about the correctness of existing proofs about Ivy programs?
+        \item Given a protocol written in Ivy, can we output an implementation of that protocol that is correct by construction, say in \texttt{C/C++}?
+    \end{itemize}
+
 \end{frame}
 
 \end{document}
